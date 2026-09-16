@@ -1,0 +1,27 @@
+{
+  "name": "idiffusion",
+  "version": "1.0.0",
+  "description": "CLI tool for managing Diffusers image generation jobs on Isambard AI HPC",
+  "module": "src/index.ts",
+  "type": "module",
+  "bin": {
+    "idiffusion": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "@types/js-yaml": "^4.0.9"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "date-fns": "^4.1.0",
+    "js-yaml": "^4.1.0"
+  }
+}

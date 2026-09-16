@@ -1,0 +1,11 @@
+# Stable Diffusion XL Base 1.0
+model: stabilityai/stable-diffusion-xl-base-1.0
+torch-dtype: bfloat16
+idle-timeout: 30
+default-steps: 30
+default-size: 1024x1024
+guidance-scale: 7.0
+
+# Slurm allocation
+gpus: 1
+time: "08:00:00"

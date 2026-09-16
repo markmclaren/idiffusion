@@ -1,0 +1,11 @@
+# FLUX.1 [schnell] — High-speed 4-step diffusion model
+model: black-forest-labs/FLUX.1-schnell
+torch-dtype: bfloat16
+idle-timeout: 30
+default-steps: 4
+default-size: 1024x1024
+guidance-scale: 0.0
+
+# Slurm allocation
+gpus: 1
+time: "08:00:00"

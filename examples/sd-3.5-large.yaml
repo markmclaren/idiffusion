@@ -1,0 +1,11 @@
+# Stable Diffusion 3.5 Large — 8B parameter Multimodal Diffusion Transformer (MMDiT)
+model: stabilityai/stable-diffusion-3.5-large
+torch-dtype: bfloat16
+idle-timeout: 30
+default-steps: 28
+default-size: 1024x1024
+guidance-scale: 4.5
+
+# Slurm allocation
+gpus: 1
+time: "08:00:00"

@@ -1,0 +1,7 @@
+# ComfyUI Interactive Node Graph Session on Isambard AI
+engine: comfyui
+idle-timeout: 60
+
+# Slurm allocation (1 GH200 GPU with 96GB/144GB unified HBM3 memory)
+gpus: 1
+time: "08:00:00"

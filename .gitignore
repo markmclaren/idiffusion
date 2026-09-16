@@ -1,0 +1,9 @@
+node_modules/
+bun.lock
+bun.lockb
+venv/
+output*.png
+output*.jpg
+*.log
+.DS_Store
+.config/
