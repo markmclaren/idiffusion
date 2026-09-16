@@ -180,17 +180,54 @@ idiffusion cancel comfy --force
 
 ---
 
+## 🔑 Gated Models & Hugging Face Access
+
+### What are Gated Models?
+
+**Gated models** on Hugging Face (such as [FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev) or [Stable Diffusion 3.5 Large](https://huggingface.co/stabilityai/stable-diffusion-3.5-large)) require users to accept a license agreement or terms of use before model weights can be downloaded or cached.
+
+Unlike open-access models (like `FLUX.1-schnell` or `SDXL`), attempting to load a gated model without prior license approval and an authenticated token will result in a `403 Client Error` (`GatedRepoError`).
+
+### How to Use Gated Models with `idiffusion`
+
+1. **Accept the License on Hugging Face**:
+   - Log into [Hugging Face](https://huggingface.co).
+   - Visit the model's repository page (e.g., [FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev) or [SD 3.5 Large](https://huggingface.co/stabilityai/stable-diffusion-3.5-large)).
+   - Click **"Accept Conditions"** / agree to the license terms.
+
+2. **Generate a Hugging Face Access Token**:
+   - Go to [Hugging Face Settings → Tokens](https://huggingface.co/settings/tokens).
+   - Create a new token with at least **Read** permissions.
+
+3. **Configure Your Token in `idiffusion`**:
+   ```bash
+   idiffusion config --hf-token hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+   `idiffusion` will automatically forward this token to Isambard AI when starting compute sessions, allowing PyTorch/Diffusers to authenticate and download gated model weights into the shared project cache (`/projects/b6ai/model/hf`).
+
+### Troubleshooting Gated Errors
+
+If a job log shows:
+```text
+huggingface_hub.utils._errors.GatedRepoError: 403 Client Error: Forbidden for url
+Access to model black-forest-labs/FLUX.1-dev is restricted.
+```
+- Ensure you accepted the license terms on the Hugging Face model page.
+- Verify your token is set locally via `idiffusion config` or on the cluster (`~/.cache/huggingface/token` or `HF_TOKEN`).
+
+---
+
 ## Configuration Presets
 
 Ready-to-use YAML configurations are available in [`examples/`](examples/):
 
-| Preset | File | Engine | Description |
-|---|---|---|---|
-| **ComfyUI Session** | `examples/comfyui.yaml` | `comfyui` | Interactive node graph web interface on port 8188 |
-| **FLUX.1 [schnell]** | `examples/flux-1-schnell.yaml` | `diffusers` | Ultra-fast 4-step generation (~1–2s per image) |
-| **FLUX.1 [dev]** | `examples/flux-1-dev.yaml` | `diffusers` | 28-step 12B parameter high-fidelity model |
-| **Stable Diffusion 3.5 Large** | `examples/sd-3.5-large.yaml` | `diffusers` | 8B parameter MMDiT from Stability AI |
-| **SDXL 1.0** | `examples/sdxl.yaml` | `diffusers` | Classic Stable Diffusion XL |
+| Preset | File | Engine | Access | Description |
+|---|---|---|---|---|
+| **ComfyUI Session** | `examples/comfyui.yaml` | `comfyui` | Open | Interactive node graph web interface on port 8188 |
+| **FLUX.1 [schnell]** | `examples/flux-1-schnell.yaml` | `diffusers` | Open | Ultra-fast 4-step generation (~1–2s per image) |
+| **SDXL 1.0** | `examples/sdxl.yaml` | `diffusers` | Open | Classic Stable Diffusion XL |
+| **FLUX.1 [dev]** | [`examples/gated/flux-1-dev.yaml`](examples/gated/flux-1-dev.yaml) | `diffusers` | **Gated** | 28-step 12B parameter high-fidelity model |
+| **Stable Diffusion 3.5 Large** | [`examples/gated/sd-3.5-large.yaml`](examples/gated/sd-3.5-large.yaml) | `diffusers` | **Gated** | 8B parameter MMDiT from Stability AI |
 
 ---
 

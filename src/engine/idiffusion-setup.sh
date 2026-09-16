@@ -154,6 +154,15 @@ else
     echo "[setup] ComfyUI repository already present at $COMFY_DIR."
 fi
 
+if [[ -f "$COMFY_DIR/requirements.txt" ]]; then
+    echo "[setup] Installing/updating ComfyUI requirements..."
+    if command -v uv &>/dev/null; then
+        uv pip install -r "$COMFY_DIR/requirements.txt" || true
+    else
+        python3 -m pip install -r "$COMFY_DIR/requirements.txt" || true
+    fi
+fi
+
 echo "[setup] Verifying installation..."
 python3 -c "
 import sys

@@ -11,7 +11,37 @@ import { isLocalPortInUse, isHealthy, generateImage } from './local-ops';
 import type { CloseableEventEmitter } from './types';
 import { execFile } from 'child_process';
 
+import fs from 'node:fs';
+import path from 'node:path';
+import yaml from 'js-yaml';
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function resolveConfigFile(configPath: string): string {
+    if (fs.existsSync(configPath)) {
+        return configPath;
+    }
+
+    const suggestions: string[] = [];
+    if (configPath.startsWith('example/')) {
+        const alt = configPath.replace(/^example\//, 'examples/');
+        if (fs.existsSync(alt)) {
+            suggestions.push(alt);
+        }
+    }
+
+    const basename = path.basename(configPath);
+    const inExamples = path.join('examples', basename);
+    if (fs.existsSync(inExamples) && !suggestions.includes(inExamples)) {
+        suggestions.push(inExamples);
+    }
+
+    let msg = `Configuration file not found: '${configPath}'.`;
+    if (suggestions.length > 0) {
+        msg += ` Did you mean: ${suggestions.map((s) => `'${s}'`).join(' or ')}?`;
+    }
+    throw new Error(msg);
+}
 
 async function main() {
     program
@@ -42,6 +72,7 @@ async function main() {
         .command('comfy')
         .description('Start or connect to an interactive ComfyUI session on the cluster')
         .argument('[jobName]', 'Short name for the ComfyUI job', 'comfy')
+        .option('--config <configFile>', 'Path to YAML configuration file')
         .option('--local-port <port>', 'Local port for ComfyUI web interface', '8188')
         .option('--batch', 'Submit to batch partition instead of interactive', false)
         .option('--time <duration>', 'SLURM time limit (e.g. 08:00:00)', '08:00:00')
@@ -172,6 +203,36 @@ async function cmdConnect(
 ): Promise<void> {
     const config = loadCredentials();
     assertConfigured(config);
+
+    // 1. If jobName is actually a file path (e.g. `idiffusion connect examples/comfyui.yaml` or `example/comfyui.yaml`)
+    if (
+        jobName.endsWith('.yaml') ||
+        jobName.endsWith('.yml') ||
+        (fs.existsSync(jobName) && fs.statSync(jobName).isFile())
+    ) {
+        if (!options.config) {
+            options.config = jobName;
+        }
+        const base = path.basename(jobName);
+        jobName = base.replace(/\.(yaml|yml)$/i, '');
+        console.log(`[connect] Interpreted path argument as config file '${options.config}'. Using job name '${jobName}'.`);
+    }
+
+    // 2. Validate & resolve options.config, and auto-detect engine from YAML
+    if (options.config) {
+        options.config = resolveConfigFile(options.config);
+        try {
+            const fileContent = fs.readFileSync(options.config, 'utf8');
+            const parsed = yaml.load(fileContent) as Record<string, any>;
+            if (parsed && parsed.engine === 'comfyui') {
+                options.comfy = true;
+            }
+        } catch (e: any) {
+            if (e.message && e.message.includes('Configuration file not found')) {
+                throw e;
+            }
+        }
+    }
 
     const isComfy = options.comfy === true;
     const defaultPort = isComfy ? 8188 : (config.defaultLocalPort || 8000);
@@ -337,7 +398,6 @@ async function cmdCancel(
     const backend = getBackend(config);
     console.log(`Cancelling job '${jobName}'${options.force ? ' (force)' : ''}...`);
     await backend.requestCancel(jobName, options.force);
-    console.log(`✓ Job '${jobName}' cancelled.`);
 }
 
 async function cmdLog(jobName: string): Promise<void> {

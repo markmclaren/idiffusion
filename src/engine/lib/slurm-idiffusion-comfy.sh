@@ -70,6 +70,41 @@ if [[ ! -d "$COMFY_DIR/.git" ]]; then
     git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFY_DIR"
 fi
 
+# Install/update ComfyUI requirements if needed (e.g. after a ComfyUI update adds new deps)
+COMFY_REQUIREMENTS="$COMFY_DIR/requirements.txt"
+if [[ -f "$COMFY_REQUIREMENTS" ]]; then
+    if ! python3 -c "import blake3" 2>/dev/null; then
+        echo "[comfy] Missing dependencies detected (e.g. blake3). Installing ComfyUI requirements..."
+        if command -v uv &>/dev/null; then
+            uv pip install -r "$COMFY_REQUIREMENTS"
+        elif python3 -m pip --version &>/dev/null; then
+            python3 -m pip install -r "$COMFY_REQUIREMENTS"
+        else
+            python3 -m ensurepip --default-pip 2>/dev/null || true
+            python3 -m pip install -r "$COMFY_REQUIREMENTS"
+        fi
+        echo "[comfy] Requirements installation complete."
+    fi
+fi
+
+# Patch comfy_kitchen type annotation compatibility bug with PyTorch 2.5 custom_op
+python3 -c "
+import pathlib
+pkgs = list(pathlib.Path('$VENV_DIR/lib').glob('python*/site-packages/comfy_kitchen'))
+for p in pkgs:
+    for f in p.glob('**/*.py'):
+        content = f.read_text()
+        if '@torch.library.custom_op' in content:
+            new_content = content.replace('list[int]', 'List[int]').replace('list[bool]', 'List[bool]').replace('list[float]', 'List[float]').replace('list[str]', 'List[str]')
+            if new_content != content:
+                if 'from typing import ' in new_content:
+                    if 'List' not in new_content.split('from typing import ')[1].split('\n')[0]:
+                        new_content = new_content.replace('from typing import ', 'from typing import List, ')
+                else:
+                    new_content = 'from typing import List\n' + new_content
+                f.write_text(new_content)
+" 2>/dev/null || true
+
 # Set HuggingFace cache to shared project directory
 export HF_HOME="$(resolve_models_dir)"
 export TRANSFORMERS_CACHE="$HF_HOME"
