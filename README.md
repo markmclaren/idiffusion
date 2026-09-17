@@ -127,11 +127,26 @@ idiffusion connect pixart
 idiffusion connect sana
 ```
 
-#### Generate Images from CLI:
+#### Generate Images from CLI (Text-to-Image, Img2Img, Inpainting):
 ```bash
+# Text-to-Image
 idiffusion generate \
   --prompt "A cinematic shot of an astronaut riding a horse on Mars, high detail, 8k" \
   --output mars.png
+
+# Image-to-Image (modify existing image)
+idiffusion generate \
+  --image mars.png \
+  --prompt "A cyberpunk astronaut riding a mechanical robotic horse on Mars" \
+  --strength 0.6 \
+  --output mars_cyberpunk.png
+
+# Inpainting (modify specific masked area)
+idiffusion generate \
+  --image mars.png \
+  --mask mask.png \
+  --prompt "a glowing green alien space station in the sky" \
+  --output mars_inpaint.png
 ```
 
 #### Generate Images from Python (OpenAI SDK):

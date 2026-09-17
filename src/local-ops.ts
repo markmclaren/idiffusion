@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import { writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 
 /**
  * Detect whether a TCP listener is bound on `localhost` at the given port.
@@ -41,7 +41,7 @@ export async function isHealthy(
 }
 
 /**
- * Generate an image using the local tunnel endpoint (POST /v1/images/generations).
+ * Generate an image using the local tunnel endpoint (POST /v1/images/generations or /v1/images/edits).
  */
 export async function generateImage(options: {
     port: number;
@@ -52,6 +52,9 @@ export async function generateImage(options: {
     guidanceScale?: number;
     seed?: number;
     negativePrompt?: string;
+    imagePath?: string;
+    maskPath?: string;
+    strength?: number;
     outputPath: string;
 }): Promise<{ outputPath: string; durationMs: number }> {
     const start = Date.now();
@@ -65,8 +68,27 @@ export async function generateImage(options: {
     if (options.guidanceScale !== undefined) payload.guidance_scale = options.guidanceScale;
     if (options.seed !== undefined) payload.seed = options.seed;
     if (options.negativePrompt) payload.negative_prompt = options.negativePrompt;
+    if (options.strength !== undefined) payload.strength = options.strength;
 
-    const res = await fetch(`http://localhost:${options.port}/v1/images/generations`, {
+    if (options.imagePath) {
+        if (!existsSync(options.imagePath)) {
+            throw new Error(`Input image file not found: ${options.imagePath}`);
+        }
+        const imgBuffer = readFileSync(options.imagePath);
+        payload.image = imgBuffer.toString('base64');
+    }
+
+    if (options.maskPath) {
+        if (!existsSync(options.maskPath)) {
+            throw new Error(`Mask image file not found: ${options.maskPath}`);
+        }
+        const maskBuffer = readFileSync(options.maskPath);
+        payload.mask = maskBuffer.toString('base64');
+    }
+
+    const endpoint = (options.imagePath || options.maskPath) ? '/v1/images/edits' : '/v1/images/generations';
+
+    const res = await fetch(`http://localhost:${options.port}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

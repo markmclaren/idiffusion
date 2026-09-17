@@ -37,6 +37,7 @@ else:
 
 tempfile.tempdir = _tmp
 
+from PIL import Image
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import uvicorn
@@ -47,6 +48,8 @@ from diffusers import (
     FluxPipeline,
     StableDiffusion3Pipeline,
     StableDiffusionXLPipeline,
+    AutoPipelineForImage2Image,
+    AutoPipelineForInpainting,
 )
 
 # Global state
@@ -61,6 +64,13 @@ server_port = 8000
 
 def get_current_time_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def decode_base64_image(b64_str: str) -> Image.Image:
+    if "," in b64_str:
+        b64_str = b64_str.split(",", 1)[1]
+    image_bytes = base64.b64decode(b64_str)
+    return Image.open(BytesIO(image_bytes)).convert("RGB")
 
 
 def update_status_file(updates: dict):
@@ -120,6 +130,9 @@ class ImageGenerationRequest(BaseModel):
     guidance_scale: Optional[float] = None
     seed: Optional[int] = None
     negative_prompt: Optional[str] = None
+    image: Optional[str] = None
+    mask: Optional[str] = None
+    strength: Optional[float] = Field(default=0.8, ge=0.0, le=1.0)
 
 
 def load_pipeline(model_id: str, dtype: str = "bfloat16"):
@@ -176,7 +189,7 @@ def load_pipeline(model_id: str, dtype: str = "bfloat16"):
 
 
 @app.get("/health")
-def health_check():
+def health():
     global last_activity_time
     last_activity_time = time.time()
 
@@ -214,6 +227,7 @@ def list_models():
     }
 
 
+@app.post("/v1/images/edits")
 @app.post("/v1/images/generations")
 async def generate_images(request: ImageGenerationRequest):
     global last_activity_time, pipeline
@@ -236,13 +250,41 @@ async def generate_images(request: ImageGenerationRequest):
     if request.seed is not None and torch.cuda.is_available():
         generator = torch.Generator(device="cuda").manual_seed(request.seed)
 
-    # Prepare call arguments
+    is_img2img = request.image is not None
+    is_inpaint = request.image is not None and request.mask is not None
+
     call_kwargs = {
         "prompt": request.prompt,
-        "width": width,
-        "height": height,
         "num_images_per_prompt": request.n,
     }
+
+    active_pipe = pipeline
+
+    if is_inpaint:
+        try:
+            active_pipe = AutoPipelineForInpainting.from_pipe(pipeline)
+        except Exception as e:
+            print(f"[server] Warning: AutoPipelineForInpainting conversion failed ({e}), using default pipeline")
+            active_pipe = pipeline
+        call_kwargs["image"] = decode_base64_image(request.image)
+        call_kwargs["mask_image"] = decode_base64_image(request.mask)
+        if request.strength is not None:
+            call_kwargs["strength"] = request.strength
+        print(f"[server] Generating Inpainting: prompt='{request.prompt}', strength={request.strength}")
+    elif is_img2img:
+        try:
+            active_pipe = AutoPipelineForImage2Image.from_pipe(pipeline)
+        except Exception as e:
+            print(f"[server] Warning: AutoPipelineForImage2Image conversion failed ({e}), using default pipeline")
+            active_pipe = pipeline
+        call_kwargs["image"] = decode_base64_image(request.image)
+        if request.strength is not None:
+            call_kwargs["strength"] = request.strength
+        print(f"[server] Generating Image-to-Image: prompt='{request.prompt}', strength={request.strength}")
+    else:
+        call_kwargs["width"] = width
+        call_kwargs["height"] = height
+        print(f"[server] Generating Text-to-Image: prompt='{request.prompt}', size={width}x{height}")
 
     if generator is not None:
         call_kwargs["generator"] = generator
@@ -260,12 +302,10 @@ async def generate_images(request: ImageGenerationRequest):
     if request.negative_prompt:
         call_kwargs["negative_prompt"] = request.negative_prompt
 
-    print(f"[server] Generating image: prompt='{request.prompt}', size={width}x{height}, steps={call_kwargs.get('num_inference_steps')}")
-
     try:
         # Run inference in a thread pool to avoid blocking FastAPI's event loop
         loop = asyncio.get_running_loop()
-        output = await loop.run_in_executor(None, lambda: pipeline(**call_kwargs))
+        output = await loop.run_in_executor(None, lambda: active_pipe(**call_kwargs))
         images = output.images
 
         results = []

@@ -294,9 +294,12 @@ async function main() {
     // GENERATE COMMAND
     program
         .command('generate')
-        .description('Generate an image via the active local tunnel endpoint')
+        .description('Generate, modify (img2img), or inpaint an image via active local tunnel endpoint')
         .requiredOption('-p, --prompt <text>', 'Text prompt describing the desired image')
         .option('-o, --output <path>', 'Output file path', 'output.png')
+        .option('-i, --image <path>', 'Input image file path for image-to-image or inpainting')
+        .option('-m, --mask <path>', 'Mask image file path (white = region to replace)')
+        .option('--strength <number>', 'Denoising strength (0.0 to 1.0; default 0.8)', (val) => parseFloat(val))
         .option('-s, --size <WxH>', 'Image dimensions (e.g. 1024x1024, 768x768)', '1024x1024')
         .option('--steps <number>', 'Number of inference steps (e.g. 4 for FLUX schnell, 28 for dev)', (val) => parseInt(val, 10))
         .option('--guidance-scale <number>', 'Guidance scale (CFG)', (val) => parseFloat(val))
@@ -727,6 +730,9 @@ async function cmdGenerate(options: {
     prompt: string;
     output: string;
     size: string;
+    image?: string;
+    mask?: string;
+    strength?: number;
     steps?: number;
     guidanceScale?: number;
     seed?: number;
@@ -745,9 +751,17 @@ async function cmdGenerate(options: {
         process.exit(1);
     }
 
-    console.log(`🎨 Generating image for prompt: "${options.prompt}"`);
+    if (options.image && options.mask) {
+        console.log(`🎨 Inpainting image: "${options.image}" with mask: "${options.mask}"`);
+    } else if (options.image) {
+        console.log(`🎨 Modifying image (img2img): "${options.image}"`);
+    } else {
+        console.log(`🎨 Generating image for prompt: "${options.prompt}"`);
+    }
+
+    if (options.image && options.strength !== undefined) console.log(`   Strength: ${options.strength}`);
     if (options.steps) console.log(`   Steps: ${options.steps}`);
-    if (options.size) console.log(`   Size: ${options.size}`);
+    if (options.size && !options.image) console.log(`   Size: ${options.size}`);
     if (options.seed !== undefined) console.log(`   Seed: ${options.seed}`);
 
     try {
@@ -756,6 +770,9 @@ async function cmdGenerate(options: {
             prompt: options.prompt,
             model: options.model,
             size: options.size,
+            imagePath: options.image,
+            maskPath: options.mask,
+            strength: options.strength,
             steps: options.steps,
             guidanceScale: options.guidanceScale,
             seed: options.seed,
