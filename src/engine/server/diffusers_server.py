@@ -266,21 +266,58 @@ async def generate_images(request: ImageGenerationRequest):
         except Exception as e:
             print(f"[server] Warning: AutoPipelineForInpainting conversion failed ({e}), using default pipeline")
             active_pipe = pipeline
-        call_kwargs["image"] = decode_base64_image(request.image)
-        call_kwargs["mask_image"] = decode_base64_image(request.mask)
+        init_image = decode_base64_image(request.image)
+        mask_image = decode_base64_image(request.mask)
+        call_kwargs["image"] = init_image
+        call_kwargs["mask_image"] = mask_image
         if request.strength is not None:
             call_kwargs["strength"] = request.strength
-        print(f"[server] Generating Inpainting: prompt='{request.prompt}', strength={request.strength}")
+
+        # Auto-calculate aspect-ratio matching dimensions if default size
+        init_w, init_h = init_image.size
+        if request.size == "1024x1024" or not request.size:
+            aspect = init_w / init_h
+            if aspect >= 1:
+                calc_w = 1024
+                calc_h = max(128, int(round(1024 / aspect / 16) * 16))
+            else:
+                calc_h = 1024
+                calc_w = max(128, int(round(1024 * aspect / 16) * 16))
+            call_kwargs["width"] = calc_w
+            call_kwargs["height"] = calc_h
+            print(f"[server] Generating Inpainting: prompt='{request.prompt}', strength={request.strength}, size={calc_w}x{calc_h} (auto aspect ratio)")
+        else:
+            call_kwargs["width"] = width
+            call_kwargs["height"] = height
+            print(f"[server] Generating Inpainting: prompt='{request.prompt}', strength={request.strength}, size={width}x{height}")
     elif is_img2img:
         try:
             active_pipe = AutoPipelineForImage2Image.from_pipe(pipeline)
         except Exception as e:
             print(f"[server] Warning: AutoPipelineForImage2Image conversion failed ({e}), using default pipeline")
             active_pipe = pipeline
-        call_kwargs["image"] = decode_base64_image(request.image)
+        init_image = decode_base64_image(request.image)
+        call_kwargs["image"] = init_image
         if request.strength is not None:
             call_kwargs["strength"] = request.strength
-        print(f"[server] Generating Image-to-Image: prompt='{request.prompt}', strength={request.strength}")
+
+        # Auto-calculate aspect-ratio matching dimensions if default size
+        init_w, init_h = init_image.size
+        if request.size == "1024x1024" or not request.size:
+            aspect = init_w / init_h
+            if aspect >= 1:
+                calc_w = 1024
+                calc_h = max(128, int(round(1024 / aspect / 16) * 16))
+            else:
+                calc_h = 1024
+                calc_w = max(128, int(round(1024 * aspect / 16) * 16))
+            call_kwargs["width"] = calc_w
+            call_kwargs["height"] = calc_h
+            print(f"[server] Generating Image-to-Image: prompt='{request.prompt}', strength={request.strength}, size={calc_w}x{calc_h} (auto aspect ratio)")
+        else:
+            call_kwargs["width"] = width
+            call_kwargs["height"] = height
+            print(f"[server] Generating Image-to-Image: prompt='{request.prompt}', strength={request.strength}, size={width}x{height}")
     else:
         call_kwargs["width"] = width
         call_kwargs["height"] = height
