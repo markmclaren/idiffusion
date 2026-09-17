@@ -201,6 +201,24 @@ export class IsambardDiffusionBackend extends Backend {
         );
     }
 
+    async clearLog(job: string): Promise<void> {
+        await this.bootstrap();
+        const logPath = `${this.creds.projectDir}/idiffusion/jobs/${job}/server.log`;
+        await this.ops.runRemote(`mkdir -p "$(dirname "${logPath}")" && > "${logPath}"`, {
+            env: this.envs,
+            silent: true,
+        });
+    }
+
+    async clearAllLogs(): Promise<void> {
+        await this.bootstrap();
+        const jobsDir = `${this.creds.projectDir}/idiffusion/jobs`;
+        await this.ops.runRemote(`find "${jobsDir}" -name "server.log" -exec truncate -s 0 {} + 2>/dev/null || true`, {
+            env: this.envs,
+            silent: true,
+        });
+    }
+
     private async getRemoteEngine(): Promise<string> {
         const home = await this.getRemoteHome();
         return `${home}/.local/share/idiffusion/engine`;

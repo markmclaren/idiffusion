@@ -40,6 +40,10 @@ export abstract class Backend {
         job: string,
     ): Promise<CloseableEventEmitter>;
 
+    abstract clearLog(job: string): Promise<void>;
+
+    abstract clearAllLogs(): Promise<void>;
+
     async getJobStatus(job: string): Promise<DiffusionLockfile> {
         const statuses = await this.getAllJobStatus();
         const matched = statuses.find((s) => s.jobName === job);

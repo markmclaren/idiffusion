@@ -278,6 +278,6 @@ Ready-to-use YAML configurations are available in [`examples/`](examples/):
 | `idiffusion generate -p <prompt> [-o <path>]` | Generate an image via active local tunnel |
 | `idiffusion status [job]` | Show status table of jobs and active local background tunnels |
 | `idiffusion cancel <job> [--force]` | Cancel a running HPC job |
-| `idiffusion log <job>` | View or tail remote server log |
+| `idiffusion log [job] [-c, --clear]` | Tail remote log, or clear log for a job (`--clear` without job clears all) |
 | `idiffusion config [options]` | View or update connection settings |
 | `idiffusion setup [--force]` | Build the shared Python environment on HPC |

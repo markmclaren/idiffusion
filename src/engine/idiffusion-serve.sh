@@ -143,7 +143,7 @@ slurmJobId=$(sbatch \
     --time="$MAX_TIME" \
     --output="$LOG_FILE" \
     --error="$LOG_FILE" \
-    --open-mode=append \
+    --open-mode=truncate \
     $PARTITION_FLAGS \
     "$RUNNER" "${RUNNER_ARGS[@]}")
 

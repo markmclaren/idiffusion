@@ -286,8 +286,9 @@ async function main() {
     // LOG COMMAND
     program
         .command('log')
-        .description('Tail remote log for an image generation job')
-        .argument('<jobName>', 'Short name of the job')
+        .description('Tail or clear remote log for an image generation job')
+        .argument('[jobName]', 'Short name of the job')
+        .option('-c, --clear', 'Clear/truncate the log file for the specified job (or all jobs if omitted)', false)
         .action(cmdLog);
 
     // GENERATE COMMAND
@@ -682,10 +683,32 @@ async function cmdCancel(
     await backend.requestCancel(jobName, options.force);
 }
 
-async function cmdLog(jobName: string): Promise<void> {
+async function cmdLog(
+    jobName?: string,
+    options?: { clear: boolean },
+): Promise<void> {
     const config = loadCredentials();
     assertConfigured(config);
     const backend = getBackend(config);
+
+    if (options?.clear) {
+        if (jobName) {
+            console.log(`Clearing log for job '${jobName}'...`);
+            await backend.clearLog(jobName);
+            console.log(`✓ Log for '${jobName}' cleared.`);
+        } else {
+            console.log('Clearing logs for all jobs...');
+            await backend.clearAllLogs();
+            console.log('✓ All job logs cleared.');
+        }
+        return;
+    }
+
+    if (!jobName) {
+        console.error('ERROR: <jobName> is required when viewing logs.');
+        console.error('Usage: idiffusion log <jobName> [--clear]');
+        process.exit(1);
+    }
 
     console.log(`Tailing logs for job '${jobName}' (Ctrl+C to stop)...`);
     const watcher = await backend.watchLog(jobName);
