@@ -12,6 +12,16 @@ fi
 
 export IDIFFUSION_GRP=$(stat "$IDIFFUSION_PROJECTDIR" -c %g 2>/dev/null || id -g)
 
+# Ensure TMPDIR exists and is writable on compute nodes
+if [[ -n "${TMPDIR:-}" ]]; then
+    mkdir -p "$TMPDIR" 2>/dev/null || export TMPDIR="/tmp/idiffusion-${USER:-user}"
+else
+    export TMPDIR="/tmp/idiffusion-${USER:-user}"
+fi
+mkdir -p "$TMPDIR" 2>/dev/null || export TMPDIR="/tmp"
+export TEMP="$TMPDIR"
+export TMP="$TMPDIR"
+
 # Group writable permissions
 umask 0002
 

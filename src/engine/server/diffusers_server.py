@@ -15,13 +15,39 @@ import json
 import os
 import socket
 import sys
+import tempfile
 import time
 from typing import Optional
+
+# Sanitize TMPDIR before PyTorch / Diffusers imports to prevent crashes on compute nodes
+_tmp = os.environ.get("TMPDIR") or os.environ.get("TEMP") or os.environ.get("TMP")
+if _tmp:
+    try:
+        os.makedirs(_tmp, exist_ok=True)
+    except Exception:
+        _tmp = "/tmp"
+        os.environ["TMPDIR"] = _tmp
+        os.environ["TEMP"] = _tmp
+        os.environ["TMP"] = _tmp
+else:
+    _tmp = "/tmp"
+    os.environ["TMPDIR"] = _tmp
+    os.environ["TEMP"] = _tmp
+    os.environ["TMP"] = _tmp
+
+tempfile.tempdir = _tmp
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import uvicorn
 import torch
+import diffusers
+from diffusers import (
+    DiffusionPipeline,
+    FluxPipeline,
+    StableDiffusion3Pipeline,
+    StableDiffusionXLPipeline,
+)
 
 # Global state
 pipeline = None
@@ -107,28 +133,24 @@ def load_pipeline(model_id: str, dtype: str = "bfloat16"):
     model_lower = model_id.lower()
     try:
         if "flux" in model_lower:
-            from diffusers import FluxPipeline
             pipe = FluxPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch_dtype,
                 token=hf_token,
             )
         elif "stable-diffusion-3" in model_lower or "sd3" in model_lower:
-            from diffusers import StableDiffusion3Pipeline
             pipe = StableDiffusion3Pipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch_dtype,
                 token=hf_token,
             )
         elif "xl" in model_lower:
-            from diffusers import StableDiffusionXLPipeline
             pipe = StableDiffusionXLPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch_dtype,
                 token=hf_token,
             )
         else:
-            from diffusers import DiffusionPipeline
             pipe = DiffusionPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch_dtype,
@@ -136,7 +158,6 @@ def load_pipeline(model_id: str, dtype: str = "bfloat16"):
             )
     except Exception as e:
         print(f"[server] Specialized load failed, falling back to DiffusionPipeline: {e}")
-        from diffusers import DiffusionPipeline
         pipe = DiffusionPipeline.from_pretrained(
             model_id,
             torch_dtype=torch_dtype,

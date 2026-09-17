@@ -9,7 +9,15 @@ import {
 import { formatJobTable } from './utils';
 import { isLocalPortInUse, isHealthy, generateImage } from './local-ops';
 import type { CloseableEventEmitter } from './types';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import {
+    saveSession,
+    removeSession,
+    getActiveSessions,
+    getSessionByPort,
+    stopLocalSession,
+    type LocalSession,
+} from './session-manager';
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -131,6 +139,66 @@ function resolveJobAndConfig(
     return { jobName: jobOrPath, configPath: discoveredConfig };
 }
 
+function printReadyBanner(
+    jobName: string,
+    localPort: number,
+    engine: string,
+    modelName: string,
+    slurmId: string,
+    isDaemon: boolean = false,
+    daemonPid?: number,
+    autoOpen: boolean = true,
+): void {
+    if (engine === 'comfyui') {
+        console.log(`
+========================================================================
+🎨 ComfyUI Web Interface Ready!
+========================================================================
+  Web UI:         http://localhost:${localPort}/
+  WebSocket API:  ws://localhost:${localPort}/ws
+  Job Name:       ${jobName}
+  SLURM Job ID:   ${slurmId}
+  Shared Models:  Auto-mounted from /projects/b6ai/model
+${isDaemon && daemonPid ? `  Mode:           Background Daemon (PID ${daemonPid})\n` : ''}
+${isDaemon ? `[Background session active. Run 'idiffusion disconnect ${jobName}' to stop tunnel.]` : `[Press Ctrl+C at any time to disconnect the tunnel. The HPC session will remain active.]`}
+========================================================================
+`);
+        if (process.platform === 'darwin' && autoOpen !== false) {
+            console.log(`Opening http://localhost:${localPort}/ in your browser...`);
+            execFile('open', [`http://localhost:${localPort}/`]);
+        }
+    } else {
+        console.log(`
+========================================================================
+🎨 idiffusion Server Connected
+========================================================================
+  Endpoint:       http://localhost:${localPort}/v1
+  Images API:     http://localhost:${localPort}/v1/images/generations
+  Health:         http://localhost:${localPort}/health
+  Model:          ${modelName}
+  Job Name:       ${jobName}
+  SLURM Job ID:   ${slurmId}
+${isDaemon && daemonPid ? `  Mode:           Background Daemon (PID ${daemonPid})\n` : ''}
+Quick generation with idiffusion:
+  idiffusion generate --prompt "A serene lake in the mountains at sunrise" --port ${localPort}
+
+Example OpenAI Python SDK client:
+  from openai import OpenAI
+  client = OpenAI(base_url="http://localhost:${localPort}/v1", api_key="placeholder")
+  res = client.images.generate(model="${modelName}", prompt="...", response_format="b64_json")
+
+Example curl request:
+  curl -X POST http://localhost:${localPort}/v1/images/generations \\
+       -H "Content-Type: application/json" \\
+       -d '{"prompt": "A futuristic city in cyberpunk style", "size": "1024x1024"}' \\
+       | jq -r '.data[0].b64_json' | base64 --decode > output.png
+
+${isDaemon ? `[Background session active. Run 'idiffusion disconnect ${jobName}' to stop tunnel.]` : `[Press Ctrl+C at any time to disconnect the tunnel. The HPC job will remain alive.]`}
+========================================================================
+`);
+    }
+}
+
 async function main() {
     program
         .name('idiffusion')
@@ -165,6 +233,7 @@ async function main() {
         .option('--batch', 'Submit to batch partition instead of interactive', false)
         .option('--time <duration>', 'SLURM time limit (e.g. 08:00:00)', '08:00:00')
         .option('--no-open', 'Do not automatically open browser upon connection', false)
+        .option('-d, --detach', 'Run session tunnel in background', false)
         .action(async (jobName, opts) => {
             await cmdConnect(jobName || 'comfy', {
                 ...opts,
@@ -185,7 +254,18 @@ async function main() {
         .option('--batch', 'Submit to batch partition instead of interactive', false)
         .option('--time <duration>', 'SLURM time limit (e.g. 08:00:00)', '08:00:00')
         .option('--no-open', 'Do not automatically open browser (when using --comfy)', false)
+        .option('-d, --detach', 'Run session tunnel in background', false)
+        .option('--daemon-worker', 'Internal flag for background daemon process mode', false)
         .action(cmdConnect);
+
+    // DISCONNECT COMMAND
+    program
+        .command('disconnect')
+        .description('Disconnect active local session tunnel(s)')
+        .argument('[jobName]', 'Short name of the job to disconnect')
+        .option('-a, --all', 'Disconnect all active local sessions', false)
+        .option('-c, --cancel', 'Also cancel the remote HPC SLURM job', false)
+        .action(cmdDisconnect);
 
     // STATUS COMMAND
     program
@@ -287,6 +367,8 @@ async function cmdConnect(
         batch: boolean;
         time: string;
         open?: boolean;
+        detach?: boolean;
+        daemonWorker?: boolean;
     },
 ): Promise<void> {
     const config = loadCredentials();
@@ -296,26 +378,47 @@ async function cmdConnect(
     jobName = resolved.jobName;
     options.config = resolved.configPath;
 
-    if (options.config) {
-        try {
-            const fileContent = fs.readFileSync(options.config, 'utf8');
-            const parsed = load(fileContent) as Record<string, any>;
-            if (parsed && parsed.engine === 'comfyui') {
-                options.comfy = true;
+    if (!options.daemonWorker) {
+        if (options.config) {
+            try {
+                const fileContent = fs.readFileSync(options.config, 'utf8');
+                const parsed = load(fileContent) as Record<string, any>;
+                if (parsed && parsed.engine === 'comfyui') {
+                    options.comfy = true;
+                }
+                console.log(`[connect] Using job name '${jobName}' with config file '${options.config}'.`);
+            } catch (e: any) {
+                if (e.message && e.message.includes('Configuration file not found')) {
+                    throw e;
+                }
             }
-            console.log(`[connect] Using job name '${jobName}' with config file '${options.config}'.`);
-        } catch (e: any) {
-            if (e.message && e.message.includes('Configuration file not found')) {
-                throw e;
-            }
+        } else {
+            console.log(`[connect] Using job name '${jobName}'.`);
         }
-    } else {
-        console.log(`[connect] Using job name '${jobName}'.`);
     }
 
     const isComfy = options.comfy === true;
     const defaultPort = isComfy ? 8188 : (config.defaultLocalPort || 8000);
     const localPort = options.localPort ? parseInt(options.localPort, 10) : defaultPort;
+
+    const existingSession = getSessionByPort(localPort);
+    if (existingSession) {
+        if (existingSession.jobName === jobName && !options.detach && !options.daemonWorker) {
+            console.log(`[connect] Local session for '${jobName}' is already active on port ${localPort} (PID ${existingSession.pid}).`);
+            const backend = getBackend(config);
+            const lockfile = await backend.getJobStatus(jobName).catch(() => null);
+            const slurmId = lockfile?.slurmJobId || '-';
+            const engine = lockfile?.engine || (isComfy ? 'comfyui' : 'diffusers');
+            const modelName = lockfile?.model || options.model || 'Diffusers Model';
+            printReadyBanner(jobName, localPort, engine, modelName, slurmId, true, existingSession.pid, options.open);
+            return;
+        } else {
+            if (!options.daemonWorker) {
+                console.log(`[connect] Disconnecting existing local session '${existingSession.jobName}' on port ${localPort} (PID ${existingSession.pid})...`);
+            }
+            await stopLocalSession(existingSession);
+        }
+    }
 
     const portUsage = await isLocalPortInUse(localPort);
     if (portUsage) {
@@ -330,14 +433,17 @@ async function cmdConnect(
     let tunnel: CloseableEventEmitter | null = null;
 
     const cleanupAndExit = async () => {
-        console.log('\n\n[Ctrl+C] Disconnecting local session...');
+        if (!options.daemonWorker) {
+            console.log('\n\n[Ctrl+C] Disconnecting local session...');
+        }
+        removeSession(jobName);
         try {
             if (logWatcher) await logWatcher.close();
             if (tunnel) await tunnel.close();
         } catch (err) {
-            console.error('Error during cleanup:', err);
+            if (!options.daemonWorker) console.error('Error during cleanup:', err);
         } finally {
-            console.log('Done.');
+            if (!options.daemonWorker) console.log('Done.');
             process.exit(0);
         }
     };
@@ -347,7 +453,9 @@ async function cmdConnect(
 
     try {
         if (await backend.isStartable(jobName)) {
-            console.log(`[connect] Job '${jobName}' is not currently active. Requesting start...`);
+            if (!options.daemonWorker) {
+                console.log(`[connect] Job '${jobName}' is not currently active. Requesting start...`);
+            }
             await backend.requestStart(
                 jobName,
                 options.time,
@@ -359,7 +467,9 @@ async function cmdConnect(
         }
 
         if (await backend.isStarting(jobName)) {
-            console.log(`[connect] Job '${jobName}' is starting. Attaching log stream...`);
+            if (!options.daemonWorker) {
+                console.log(`[connect] Job '${jobName}' is starting. Attaching log stream...`);
+            }
             logWatcher = await backend.watchLog(jobName);
 
             while (await backend.isStarting(jobName)) {
@@ -378,7 +488,50 @@ async function cmdConnect(
             );
         }
 
-        console.log(`[connect] Job '${jobName}' is running! Establishing SSH tunnel to compute node...`);
+        if (options.detach && !options.daemonWorker) {
+            console.log(`[connect] Job '${jobName}' is running! Launching local tunnel daemon process...`);
+
+            const daemonArgs = [
+                process.argv[1],
+                'connect',
+                jobName,
+                '--daemon-worker',
+                '--local-port', String(localPort),
+            ];
+            if (options.config) daemonArgs.push('--config', options.config);
+            if (options.model) daemonArgs.push('--model', options.model);
+            if (isComfy) daemonArgs.push('--comfy');
+
+            const child = spawn(process.execPath, daemonArgs, {
+                detached: true,
+                stdio: 'ignore',
+                cwd: process.cwd(),
+                env: process.env,
+            });
+            child.unref();
+
+            console.log(`[connect] Background daemon process launched (PID ${child.pid}). Waiting for local port ${localPort}...`);
+            let ready = false;
+            for (let i = 0; i < 20; i++) {
+                await sleep(500);
+                if (await isHealthy(localPort, 1000) || getSessionByPort(localPort) !== null) {
+                    ready = true;
+                    break;
+                }
+            }
+
+            const lockfile = await backend.getJobStatus(jobName).catch(() => null);
+            const slurmId = lockfile?.slurmJobId || '-';
+            const engine = lockfile?.engine || (isComfy ? 'comfyui' : 'diffusers');
+            const modelName = lockfile?.model || options.model || 'Diffusers Model';
+
+            printReadyBanner(jobName, localPort, engine, modelName, slurmId, true, child.pid, options.open);
+            process.exit(0);
+        }
+
+        if (!options.daemonWorker) {
+            console.log(`[connect] Job '${jobName}' is running! Establishing SSH tunnel to compute node...`);
+        }
         tunnel = await backend.connect(jobName, localPort);
 
         // Wait a moment for port to be bound
@@ -387,66 +540,92 @@ async function cmdConnect(
         const lockfile = await backend.getJobStatus(jobName).catch(() => null);
         const slurmId = lockfile?.slurmJobId || '-';
         const engine = lockfile?.engine || (isComfy ? 'comfyui' : 'diffusers');
+        const modelName = lockfile?.model || options.model || 'Diffusers Model';
 
-        if (engine === 'comfyui') {
-            console.log(`
-========================================================================
-🎨 ComfyUI Web Interface Ready!
-========================================================================
-  Web UI:         http://localhost:${localPort}/
-  WebSocket API:  ws://localhost:${localPort}/ws
-  Job Name:       ${jobName}
-  SLURM Job ID:   ${slurmId}
-  Shared Models:  Auto-mounted from /projects/b6ai/model
+        saveSession({
+            jobName,
+            localPort,
+            pid: process.pid,
+            engine,
+            slurmJobId: slurmId,
+            model: modelName,
+            startTime: new Date().toISOString(),
+        });
 
-[Press Ctrl+C at any time to disconnect the tunnel. The HPC session will remain active.]
-========================================================================
-`);
-            if (process.platform === 'darwin' && options.open !== false) {
-                console.log(`Opening http://localhost:${localPort}/ in your browser...`);
-                execFile('open', [`http://localhost:${localPort}/`]);
-            }
-        } else {
-            const modelName = lockfile?.model || options.model || 'Diffusers Model';
-            console.log(`
-========================================================================
-🎨 idiffusion Server Connected
-========================================================================
-  Endpoint:       http://localhost:${localPort}/v1
-  Images API:     http://localhost:${localPort}/v1/images/generations
-  Health:         http://localhost:${localPort}/health
-  Model:          ${modelName}
-  Job Name:       ${jobName}
-  SLURM Job ID:   ${slurmId}
-
-Quick generation with idiffusion:
-  idiffusion generate --prompt "A serene lake in the mountains at sunrise" --port ${localPort}
-
-Example OpenAI Python SDK client:
-  from openai import OpenAI
-  client = OpenAI(base_url="http://localhost:${localPort}/v1", api_key="placeholder")
-  res = client.images.generate(model="${modelName}", prompt="...", response_format="b64_json")
-
-Example curl request:
-  curl -X POST http://localhost:${localPort}/v1/images/generations \\
-       -H "Content-Type: application/json" \\
-       -d '{"prompt": "A futuristic city in cyberpunk style", "size": "1024x1024"}' \\
-       | jq -r '.data[0].b64_json' | base64 --decode > output.png
-
-[Press Ctrl+C at any time to disconnect the tunnel. The HPC job will remain alive.]
-========================================================================
-`);
+        if (!options.daemonWorker) {
+            printReadyBanner(jobName, localPort, engine, modelName, slurmId, false, undefined, options.open);
         }
 
         // Keep tunnel alive until signal or tunnel close
         while (await tunnel.isAlive()) {
-            await sleep(5000);
+            await sleep(3000);
         }
 
-        console.log('[connect] Tunnel closed.');
+        if (!options.daemonWorker) {
+            console.log('[connect] Tunnel closed.');
+        }
+        removeSession(jobName);
     } catch (err: any) {
-        console.error(`\n[connect] ERROR: ${err.message || err}`);
+        if (!options.daemonWorker) {
+            console.error(`\n[connect] ERROR: ${err.message || err}`);
+        }
         await cleanupAndExit();
+    }
+}
+
+async function cmdDisconnect(
+    jobName?: string,
+    options?: { all: boolean; cancel: boolean },
+): Promise<void> {
+    const config = loadCredentials();
+    assertConfigured(config);
+
+    const sessions = getActiveSessions();
+    if (sessions.length === 0) {
+        console.log('No active local sessions found.');
+        if (options?.cancel && jobName) {
+            const backend = getBackend(config);
+            console.log(`Cancelling remote job '${jobName}'...`);
+            await backend.requestCancel(jobName, false);
+            console.log(`✓ Remote job '${jobName}' cancelled.`);
+        }
+        return;
+    }
+
+    let targets: LocalSession[] = [];
+    if (options?.all) {
+        targets = sessions;
+    } else if (jobName) {
+        targets = sessions.filter((s) => s.jobName === jobName);
+        if (targets.length === 0) {
+            console.log(`No active local session found for job '${jobName}'.`);
+            if (options?.cancel) {
+                const backend = getBackend(config);
+                console.log(`Cancelling remote job '${jobName}'...`);
+                await backend.requestCancel(jobName, false);
+                console.log(`✓ Remote job '${jobName}' cancelled.`);
+            }
+            return;
+        }
+    } else {
+        targets = sessions;
+    }
+
+    for (const session of targets) {
+        console.log(`Disconnecting local session '${session.jobName}' (PID ${session.pid}, port ${session.localPort})...`);
+        await stopLocalSession(session);
+        console.log(`✓ Local session '${session.jobName}' disconnected.`);
+
+        if (options?.cancel) {
+            try {
+                const backend = getBackend(config);
+                console.log(`Cancelling remote HPC job '${session.jobName}'...`);
+                await backend.requestCancel(session.jobName, false);
+                console.log(`✓ Remote job '${session.jobName}' cancelled.`);
+            } catch (err: any) {
+                console.error(`Failed to cancel remote job '${session.jobName}': ${err.message}`);
+            }
+        }
     }
 }
 
@@ -455,16 +634,18 @@ async function cmdStatus(jobName?: string): Promise<void> {
     assertConfigured(config);
     const backend = getBackend(config);
 
+    const localSessions = getActiveSessions();
+
     if (jobName) {
         try {
             const status = await backend.getJobStatus(jobName);
-            console.log(formatJobTable([status]));
+            console.log(formatJobTable([status], localSessions));
         } catch (err: any) {
             console.error(err.message);
         }
     } else {
         const statuses = await backend.getAllJobStatus();
-        console.log(formatJobTable(statuses));
+        console.log(formatJobTable(statuses, localSessions));
     }
 }
 

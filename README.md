@@ -220,6 +220,38 @@ Access to model black-forest-labs/FLUX.1-dev is restricted.
 
 ---
 
+### 🚀 Background Mode & Session Management (`-d` / `--detach`)
+
+You can run your SSH tunnel as a background daemon process using the `-d` / `--detach` flag. This frees up your terminal prompt immediately so you don't need to keep another window open:
+
+```bash
+# Connect FLUX in background mode
+idiffusion connect flux -d
+
+# Or launch ComfyUI in background mode
+idiffusion comfy -d
+```
+
+#### Disconnecting Local Tunnels:
+To stop a local background tunnel without terminating the remote HPC job:
+```bash
+# Disconnect local session for 'flux'
+idiffusion disconnect flux
+
+# Disconnect all active local sessions
+idiffusion disconnect --all
+```
+
+To stop the local tunnel **AND** cancel the remote SLURM job on Isambard AI:
+```bash
+idiffusion disconnect flux --cancel
+```
+
+#### Automatic Port Switching:
+If you switch models (e.g. from `flux` to `sdxl`), `idiffusion` automatically disconnects the existing local session on port 8000 and connects the new one smoothly!
+
+---
+
 ## Configuration Presets
 
 Ready-to-use YAML configurations are available in [`examples/`](examples/):
@@ -240,11 +272,12 @@ Ready-to-use YAML configurations are available in [`examples/`](examples/):
 
 | Command | Description |
 |---|---|
-| `idiffusion comfy [jobName] [--local-port <port>]` | Launch interactive ComfyUI in browser (`localhost:8188`) |
-| `idiffusion connect <job> [--config <file>] [--comfy]` | Start or connect to an image server and forward local port |
+| `idiffusion comfy [job] [-d] [--local-port <port>]` | Launch interactive ComfyUI in browser (`localhost:8188`) |
+| `idiffusion connect <job> [-d] [--config <file>]` | Start/connect session and forward local port (`-d` for background) |
+| `idiffusion disconnect [job] [-a] [-c]` | Disconnect local session tunnel (`-c` to also cancel HPC job) |
 | `idiffusion generate -p <prompt> [-o <path>]` | Generate an image via active local tunnel |
-| `idiffusion status [job]` | Show status table of all jobs on the HPC |
-| `idiffusion cancel <job> [--force]` | Cancel a running job |
+| `idiffusion status [job]` | Show status table of jobs and active local background tunnels |
+| `idiffusion cancel <job> [--force]` | Cancel a running HPC job |
 | `idiffusion log <job>` | View or tail remote server log |
 | `idiffusion config [options]` | View or update connection settings |
 | `idiffusion setup [--force]` | Build the shared Python environment on HPC |
