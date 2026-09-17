@@ -1,6 +1,6 @@
-# Stable Diffusion 3.5 Large — 8B parameter Multimodal Diffusion Transformer (MMDiT)
-name: sd35
-model: stabilityai/stable-diffusion-3.5-large
+# PixArt-Sigma XL (1024x1024 Multi-Scale) — Native T5 DiT architecture
+name: pixart
+model: PixArt-alpha/PixArt-sigma-xl-2-1024-MS
 torch-dtype: bfloat16
 idle-timeout: 30
 default-steps: 28

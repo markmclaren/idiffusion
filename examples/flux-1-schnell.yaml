@@ -1,4 +1,5 @@
 # FLUX.1 [schnell] — High-speed 4-step diffusion model
+name: flux
 model: black-forest-labs/FLUX.1-schnell
 torch-dtype: bfloat16
 idle-timeout: 30

@@ -38,3 +38,5 @@ If you don't want to deal with gated access, the following configs in `examples/
 |--------|-------|
 | `flux-1-schnell.yaml` | FLUX.1-schnell (Apache 2.0) |
 | `sdxl.yaml` | Stable Diffusion XL Base 1.0 (CreativeML RAIL) |
+| `pixart-sigma.yaml` | PixArt-Sigma XL (Apache 2.0) |
+| `sana-1.6b.yaml` | Sana 1.6B 1024px (MIT License) |

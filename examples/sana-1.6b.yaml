@@ -1,0 +1,12 @@
+# Sana-1.6B (1024px) — Extremely fast modern DiT architecture
+name: sana
+model: Efficient-Large-Model/Sana_1600M_1024px_diffusers
+torch-dtype: bfloat16
+idle-timeout: 30
+default-steps: 18
+default-size: 1024x1024
+guidance-scale: 4.5
+
+# Slurm allocation
+gpus: 1
+time: "08:00:00"

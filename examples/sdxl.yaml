@@ -1,4 +1,5 @@
 # Stable Diffusion XL Base 1.0
+name: sdxl
 model: stabilityai/stable-diffusion-xl-base-1.0
 torch-dtype: bfloat16
 idle-timeout: 30

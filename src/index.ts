@@ -13,9 +13,11 @@ import { execFile } from 'child_process';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+import { homedir } from 'os';
 
 function resolveConfigFile(configPath: string): string {
     if (fs.existsSync(configPath)) {
@@ -31,9 +33,12 @@ function resolveConfigFile(configPath: string): string {
     }
 
     const basename = path.basename(configPath);
-    const inExamples = path.join('examples', basename);
-    if (fs.existsSync(inExamples) && !suggestions.includes(inExamples)) {
-        suggestions.push(inExamples);
+    const candidateDirs = ['examples', 'examples/gated', path.join(homedir(), '.config', 'idiffusion', 'configs')];
+    for (const dir of candidateDirs) {
+        const candidate = path.join(dir, basename);
+        if (fs.existsSync(candidate) && !suggestions.includes(candidate)) {
+            suggestions.push(candidate);
+        }
     }
 
     let msg = `Configuration file not found: '${configPath}'.`;
@@ -41,6 +46,89 @@ function resolveConfigFile(configPath: string): string {
         msg += ` Did you mean: ${suggestions.map((s) => `'${s}'`).join(' or ')}?`;
     }
     throw new Error(msg);
+}
+
+function findConfigFileForJob(targetName: string): string | undefined {
+    const searchDirs = [
+        '.',
+        'examples',
+        'examples/gated',
+        path.join(homedir(), '.config', 'idiffusion', 'configs'),
+    ];
+
+    let nameMatchedFile: string | undefined;
+    let filenameMatchedFile: string | undefined;
+
+    for (const dir of searchDirs) {
+        if (!fs.existsSync(dir)) continue;
+        try {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) continue;
+                const fullPath = path.join(dir, file);
+                try {
+                    const content = fs.readFileSync(fullPath, 'utf8');
+                    const parsed = load(content) as Record<string, any>;
+                    if (parsed && typeof parsed === 'object') {
+                        const nameInYaml = parsed.name || parsed.jobName || parsed.job;
+                        if (nameInYaml === targetName) {
+                            nameMatchedFile = fullPath;
+                            break;
+                        }
+                    }
+                } catch {
+                    // ignore unparseable yaml
+                }
+
+                const baseWithoutExt = file.replace(/\.(yaml|yml)$/i, '');
+                if (baseWithoutExt === targetName || baseWithoutExt.startsWith(`${targetName}-`)) {
+                    if (!filenameMatchedFile) {
+                        filenameMatchedFile = fullPath;
+                    }
+                }
+            }
+        } catch {
+            // ignore unreadable dirs
+        }
+        if (nameMatchedFile) break;
+    }
+
+    return nameMatchedFile || filenameMatchedFile;
+}
+
+function resolveJobAndConfig(
+    jobOrPath: string,
+    explicitConfig?: string,
+): { jobName: string; configPath?: string } {
+    // Case 1: Argument is directly a file path
+    if (
+        jobOrPath.endsWith('.yaml') ||
+        jobOrPath.endsWith('.yml') ||
+        (fs.existsSync(jobOrPath) && fs.statSync(jobOrPath).isFile())
+    ) {
+        const resolvedPath = resolveConfigFile(jobOrPath);
+        let extractedJobName = path.basename(resolvedPath).replace(/\.(yaml|yml)$/i, '');
+        try {
+            const content = fs.readFileSync(resolvedPath, 'utf8');
+            const parsed = load(content) as Record<string, any>;
+            if (parsed && (parsed.name || parsed.jobName || parsed.job)) {
+                extractedJobName = parsed.name || parsed.jobName || parsed.job;
+            }
+        } catch {
+            // keep fallback
+        }
+        return { jobName: extractedJobName, configPath: resolvedPath };
+    }
+
+    // Case 2: Explicit config file provided
+    if (explicitConfig) {
+        const resolvedPath = resolveConfigFile(explicitConfig);
+        return { jobName: jobOrPath, configPath: resolvedPath };
+    }
+
+    // Case 3: Short job name provided, search candidate directories
+    const discoveredConfig = findConfigFileForJob(jobOrPath);
+    return { jobName: jobOrPath, configPath: discoveredConfig };
 }
 
 async function main() {
@@ -204,34 +292,25 @@ async function cmdConnect(
     const config = loadCredentials();
     assertConfigured(config);
 
-    // 1. If jobName is actually a file path (e.g. `idiffusion connect examples/comfyui.yaml` or `example/comfyui.yaml`)
-    if (
-        jobName.endsWith('.yaml') ||
-        jobName.endsWith('.yml') ||
-        (fs.existsSync(jobName) && fs.statSync(jobName).isFile())
-    ) {
-        if (!options.config) {
-            options.config = jobName;
-        }
-        const base = path.basename(jobName);
-        jobName = base.replace(/\.(yaml|yml)$/i, '');
-        console.log(`[connect] Interpreted path argument as config file '${options.config}'. Using job name '${jobName}'.`);
-    }
+    const resolved = resolveJobAndConfig(jobName, options.config);
+    jobName = resolved.jobName;
+    options.config = resolved.configPath;
 
-    // 2. Validate & resolve options.config, and auto-detect engine from YAML
     if (options.config) {
-        options.config = resolveConfigFile(options.config);
         try {
             const fileContent = fs.readFileSync(options.config, 'utf8');
-            const parsed = yaml.load(fileContent) as Record<string, any>;
+            const parsed = load(fileContent) as Record<string, any>;
             if (parsed && parsed.engine === 'comfyui') {
                 options.comfy = true;
             }
+            console.log(`[connect] Using job name '${jobName}' with config file '${options.config}'.`);
         } catch (e: any) {
             if (e.message && e.message.includes('Configuration file not found')) {
                 throw e;
             }
         }
+    } else {
+        console.log(`[connect] Using job name '${jobName}'.`);
     }
 
     const isComfy = options.comfy === true;

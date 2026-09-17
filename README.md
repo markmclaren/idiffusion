@@ -121,7 +121,10 @@ Opening http://localhost:8188/ in your browser...
 Launch a headless Diffusers server on port 8000:
 
 ```bash
-idiffusion connect flux --config examples/flux-1-schnell.yaml
+# Simply refer to the short name defined inside the YAML config
+idiffusion connect flux
+idiffusion connect pixart
+idiffusion connect sana
 ```
 
 #### Generate Images from CLI:
@@ -221,13 +224,15 @@ Access to model black-forest-labs/FLUX.1-dev is restricted.
 
 Ready-to-use YAML configurations are available in [`examples/`](examples/):
 
-| Preset | File | Engine | Access | Description |
-|---|---|---|---|---|
-| **ComfyUI Session** | `examples/comfyui.yaml` | `comfyui` | Open | Interactive node graph web interface on port 8188 |
-| **FLUX.1 [schnell]** | `examples/flux-1-schnell.yaml` | `diffusers` | Open | Ultra-fast 4-step generation (~1–2s per image) |
-| **SDXL 1.0** | `examples/sdxl.yaml` | `diffusers` | Open | Classic Stable Diffusion XL |
-| **FLUX.1 [dev]** | [`examples/gated/flux-1-dev.yaml`](examples/gated/flux-1-dev.yaml) | `diffusers` | **Gated** | 28-step 12B parameter high-fidelity model |
-| **Stable Diffusion 3.5 Large** | [`examples/gated/sd-3.5-large.yaml`](examples/gated/sd-3.5-large.yaml) | `diffusers` | **Gated** | 8B parameter MMDiT from Stability AI |
+| Preset | Short Name (`name`) | File | Engine | Access | Description |
+|---|---|---|---|---|---|
+| **ComfyUI Session** | `comfy` | `examples/comfyui.yaml` | `comfyui` | Open | Interactive node graph web interface on port 8188 |
+| **FLUX.1 [schnell]** | `flux` | `examples/flux-1-schnell.yaml` | `diffusers` | Open | Ultra-fast 4-step generation (~1–2s per image) |
+| **SDXL 1.0** | `sdxl` | `examples/sdxl.yaml` | `diffusers` | Open | Classic Stable Diffusion XL |
+| **PixArt-Sigma** | `pixart` | `examples/pixart-sigma.yaml` | `diffusers` | Open | Native T5 DiT architecture; ultra-clean scaling behavior on Hopper tensor cores |
+| **Sana-1.6B** | `sana` | `examples/sana-1.6b.yaml` | `diffusers` | Open | Extremely fast modern DiT; generates 1024×1024 latents in milliseconds on an H100 |
+| **FLUX.1 [dev]** | `flux-dev` | [`examples/gated/flux-1-dev.yaml`](examples/gated/flux-1-dev.yaml) | `diffusers` | **Gated** | 28-step 12B parameter high-fidelity model |
+| **Stable Diffusion 3.5 Large** | `sd35` | [`examples/gated/sd-3.5-large.yaml`](examples/gated/sd-3.5-large.yaml) | `diffusers` | **Gated** | 8B parameter MMDiT from Stability AI |
 
 ---
 

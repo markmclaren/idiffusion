@@ -1,4 +1,5 @@
 # ComfyUI Interactive Node Graph Session on Isambard AI
+name: comfy
 engine: comfyui
 idle-timeout: 60
 

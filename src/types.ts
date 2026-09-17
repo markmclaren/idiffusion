@@ -71,6 +71,7 @@ export interface DiffusionLockfile {
 // =================================
 
 export interface DiffusionConfig {
+    name?: string;
     model: string;
     engine?: 'diffusers' | 'comfyui';
     torchDtype?: string;
