@@ -14,6 +14,7 @@ import {
     saveSession,
     removeSession,
     getActiveSessions,
+    getSessionByJob,
     getSessionByPort,
     stopLocalSession,
     type LocalSession,
@@ -454,6 +455,27 @@ async function cmdConnect(
     try {
         if (await backend.isStartable(jobName)) {
             if (!options.daemonWorker) {
+                // Check if any other job is currently occupying the HPC allocation
+                const activeStatuses = ['running', 'initialising', 'pending'];
+                const allStatuses = await backend.getAllJobStatus().catch(() => []);
+                const activeJobs = allStatuses.filter(
+                    (j) => j.jobName !== jobName && activeStatuses.includes(j.status),
+                );
+
+                for (const activeJob of activeJobs) {
+                    console.log(`[connect] Preempting existing remote job '${activeJob.jobName}' (${activeJob.model}) in state [${activeJob.status}]...`);
+                    const activeLocalSession = getSessionByJob(activeJob.jobName);
+                    if (activeLocalSession) {
+                        await stopLocalSession(activeLocalSession);
+                    }
+                    try {
+                        await backend.requestCancel(activeJob.jobName, false);
+                        console.log(`✓ Cancelled remote job '${activeJob.jobName}' to free GPU allocation.`);
+                    } catch (err: any) {
+                        console.error(`Warning: failed to cancel '${activeJob.jobName}': ${err.message}`);
+                    }
+                }
+
                 console.log(`[connect] Job '${jobName}' is not currently active. Requesting start...`);
             }
             await backend.requestStart(
