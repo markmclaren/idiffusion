@@ -2,8 +2,10 @@ node_modules/
 bun.lock
 bun.lockb
 venv/
-output*.png
-output*.jpg
+*.png
+*.jpg
 *.log
 .DS_Store
 .config/
+generation_history.md
+
